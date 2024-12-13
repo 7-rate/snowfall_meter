@@ -12,20 +12,13 @@
 // 5.休眠
 //   現在時刻を加味した休眠時間を計算し、休眠する。休眠後は再起動
 
-#define DEBUG (0)
-#define DBG_PRINT(__fmt__, ...)                                                                    \
-    do {                                                                                           \
-        if (DEBUG) {                                                                               \
-            Serial.printf(__fmt__, ##__VA_ARGS__);                                                 \
-        }                                                                                          \
-    } while (0)
-
 #include <Arduino.h>
 #include <WiFi.h>
 #include <Wire.h>
 #include <VL53L1X.h>
 #include "pico/stdlib.h"
 #include "RP2040Support.h"
+#include "env.h"
 
 /******************************************************************/
 /* Definitions                                                    */
@@ -38,6 +31,14 @@
 #define ADC_MAX_VALUE 4095 // 12ビットADCの最大値
 #define VREF 3.3           // ADCのリファレンス電圧 (V)
 #define SCALE_FACTOR 3.0   // VSYSは1/3スケールで分圧されている
+
+#define DEBUG (0)
+#define DBG_PRINT(__fmt__, ...)                                                                    \
+    do {                                                                                           \
+        if (DEBUG) {                                                                               \
+            Serial.printf(__fmt__, ##__VA_ARGS__);                                                 \
+        }                                                                                          \
+    } while (0)
 
 /***********************************/
 /* Local Variables                 */
@@ -83,7 +84,7 @@ static void measure_snowfall() {
 static void measure_battery_voltage() {
     int rawValue = analogRead(VSYS_ADC_PIN);           // ADC値を読み取る
     float voltage = (rawValue * VREF) / ADC_MAX_VALUE; // ADC値を電圧に変換
-    battery_voltage = (voltage * SCALE_FACTOR);        // スケールファクターを掛けてVSYS電圧を計算
+    battery_voltage = (voltage * SCALE_FACTOR); // スケールファクターを掛けてVSYS電圧を計算
 }
 
 // 3.時刻取得
@@ -132,7 +133,12 @@ void setup() {
     Wire.setClock(400000);
 
     // WiFi setup
-    WiFi.begin("SSID", "PASSWORD");
+    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+    while (WiFi.status() != WL_CONNECTED) {
+        delay(1000);
+        DBG_PRINT("Connecting to WiFi..\n");
+    }
+    DBG_PRINT("Connected to the WiFi network\n");
 
     // NTP setup
     NTP.begin("ntp.nict.jp", "time.google.com");

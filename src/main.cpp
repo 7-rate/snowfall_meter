@@ -17,7 +17,6 @@
 #include <Wire.h>
 #include <VL53L1X.h>
 #include "pico/stdlib.h"
-#include "RP2040Support.h"
 #include "env.h"
 
 /******************************************************************/
@@ -32,7 +31,7 @@
 #define VREF 3.3           // ADCのリファレンス電圧 (V)
 #define SCALE_FACTOR 3.0   // VSYSは1/3スケールで分圧されている
 
-#define DEBUG (0)
+#define DEBUG (1)
 #define DBG_PRINT(__fmt__, ...)                                                                    \
     do {                                                                                           \
         if (DEBUG) {                                                                               \
@@ -141,29 +140,31 @@ void setup() {
     DBG_PRINT("Connected to the WiFi network\n");
 
     // NTP setup
-    NTP.begin("ntp.nict.jp", "time.google.com");
-    NTP.waitSet();
-    setenv("TZ", "JST-9", 1);
-    tzset();
+    // NTP.begin("ntp.nict.jp", "time.google.com");
+    // NTP.waitSet();
+    // setenv("TZ", "JST-9", 1);
+    // tzset();
 
     // 電源電圧の測定のためのセットアップ
-    pinMode(ENABLE_PIN, OUTPUT);
-    digitalWrite(ENABLE_PIN, HIGH);
-    analogReadResolution(12); // 12ビット解像度のADCを設定
+    // pinMode(ENABLE_PIN, OUTPUT);
+    // digitalWrite(ENABLE_PIN, HIGH);
+    // analogReadResolution(12); // 12ビット解像度のADCを設定
 
     // VL53L1Xセンサーのセットアップ
-    VL53L1X_setup();
+    // VL53L1X_setup();
 }
 
 void loop() {
+    DBG_PRINT("Start loop\n");
     // 1.積雪の測定
-    measure_snowfall();
+    // measure_snowfall();
     // 2.バッテリー電圧測定
-    measure_battery_voltage();
+    // measure_battery_voltage();
     // 3.時刻取得
-    get_time();
+    // get_time();
     // 4.サーバーへ送信
-    send_data();
+    // send_data();
     // 5.休眠
+    DBG_PRINT("Start dormancy\n");
     dormancy();
 }

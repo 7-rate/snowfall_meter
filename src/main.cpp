@@ -56,11 +56,14 @@ float battery_voltage;
 /* Local functions                 */
 /***********************************/
 static void VL53L1X_setup() {
-    sensor.setTimeout(500);
+    sensor.setTimeout(5000);
+    sensor.setBus(&Wire);
     if (!sensor.init()) {
+        DBG_PRINT("Failed to detect and initialize sensor!\n");
         while (1)
             ;
     }
+    DBG_PRINT("VL53L1X init\n");
 
     // 最大測定距離で高精度で測定したいため、以下の設定とする。
     // Distance Mode Long
@@ -129,15 +132,16 @@ void setup() {
 
     // Wire setup
     Wire.begin();
-    Wire.setClock(400000);
+    Wire1.begin();
+    DBG_PRINT("Wire setup\n");
 
     // WiFi setup
-    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-    while (WiFi.status() != WL_CONNECTED) {
-        delay(1000);
-        DBG_PRINT("Connecting to WiFi..\n");
-    }
-    DBG_PRINT("Connected to the WiFi network\n");
+    // WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+    // while (WiFi.status() != WL_CONNECTED) {
+    //     delay(1000);
+    //     DBG_PRINT("Connecting to WiFi..\n");
+    // }
+    // DBG_PRINT("Connected to the WiFi network\n");
 
     // NTP setup
     // NTP.begin("ntp.nict.jp", "time.google.com");
@@ -151,13 +155,13 @@ void setup() {
     // analogReadResolution(12); // 12ビット解像度のADCを設定
 
     // VL53L1Xセンサーのセットアップ
-    // VL53L1X_setup();
+    VL53L1X_setup();
 }
 
 void loop() {
     DBG_PRINT("Start loop\n");
     // 1.積雪の測定
-    // measure_snowfall();
+    measure_snowfall();
     // 2.バッテリー電圧測定
     // measure_battery_voltage();
     // 3.時刻取得
@@ -165,6 +169,6 @@ void loop() {
     // 4.サーバーへ送信
     // send_data();
     // 5.休眠
-    DBG_PRINT("Start dormancy\n");
-    dormancy();
+    // DBG_PRINT("Start dormancy\n");
+    // dormancy();
 }

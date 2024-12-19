@@ -59,7 +59,7 @@ static int calculate_actual_voltage(int divider_ratio, int adc_bits, int adc_ref
     return (input_voltage_mv * divider_ratio) / 100;
 }
 
-static void printCurrentTime(struct tm *timeinfo, char *buffer) {
+static void print_current_time(struct tm *timeinfo, char *buffer) {
     strftime(buffer, 80, "%Y-%m-%d %H:%M:%S", timeinfo);
 }
 
@@ -75,8 +75,19 @@ static void dormancy() {
     Wire.end();
 
     // deepsleep
-    // TODO 時間の計算
-    uint64_t sleep_time_us = 60 * 1000 * 1000; // 60秒
+    uint64_t sleep_time_us;
+    tm timeinfo;
+    if (getLocalTime(&timeinfo, 5000)) {
+        if (timeinfo.tm_hour >= NIGHT_BEGIN_HOUR || timeinfo.tm_hour < DAY_BEGIN_HOUR) {
+            sleep_time_us = NIGHT_MEASURE_INTERVAL * 60ull * 1000ull * 1000ull; // 夜間
+        } else {
+            sleep_time_us = DAY_MEASURE_INTERVAL * 60ull * 1000ull * 1000ull; // 日中
+        }
+    } else {
+        // NTPサーバーで時刻を取得できなかった時はしょうがないので夜間の間隔分スリープする
+        sleep_time_us = NIGHT_MEASURE_INTERVAL * 60 * 1000 * 1000;
+    }
+
     esp_deep_sleep(sleep_time_us);
 }
 
@@ -122,7 +133,7 @@ static void get_time() {
         dormancy();
         return;
     }
-    printCurrentTime(&timeinfo, buffer);
+    print_current_time(&timeinfo, buffer);
     DBG_PRINT("time %s\n", buffer);
 }
 
@@ -168,14 +179,14 @@ void setup() {
     DBG_PRINT("\n");
 
     DBG_PRINT("Setup VL53L1X \n");
-    VL53L1X_setup();
+    // VL53L1X_setup();
     DBG_PRINT("\n");
 }
 
 void loop() {
     DBG_PRINT("--------Start-------\n");
     // 1.積雪の測定
-    measure_snowfall();
+    // measure_snowfall();
     // 2.バッテリー電圧測定
     measure_battery_voltage();
     // 3.時刻取得

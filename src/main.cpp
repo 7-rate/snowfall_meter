@@ -16,7 +16,6 @@
 #include <WiFi.h>
 #include <Wire.h>
 #include <VL53L1X.h>
-#include "pico/stdlib.h"
 #include "env.h"
 
 /******************************************************************/
@@ -25,13 +24,11 @@
 /***********************************/
 /* Local definitions               */
 /***********************************/
-#define VSYS_ADC_PIN 29    // GPIO29 (ADC3)
-#define ENABLE_PIN 25      // GPIO25
-#define ADC_MAX_VALUE 4095 // 12ビットADCの最大値
-#define VREF 3.3           // ADCのリファレンス電圧 (V)
-#define SCALE_FACTOR 3.0   // VSYSは1/3スケールで分圧されている
+#define ADC_BATTERY_V (A0)
+#define ADC_BATTERY_V_SCALE (200) // 1/2分圧
+#define ADC_BATTERY_V_BITS (12)   // 12ビットADC
+#define ADC_BATTERY_V_REF (3300)  // 3.3V
 
-#define DEBUG (1)
 #define DBG_PRINT(__fmt__, ...)                                                                    \
     do {                                                                                           \
         if (DEBUG) {                                                                               \
@@ -43,7 +40,7 @@
 /* Local Variables                 */
 /***********************************/
 VL53L1X sensor;
-float battery_voltage;
+int battery_voltage;
 
 /***********************************/
 /* Global Variables                */
@@ -55,13 +52,40 @@ float battery_voltage;
 /***********************************/
 /* Local functions                 */
 /***********************************/
+static int calculate_actual_voltage(int divider_ratio, int adc_bits, int adc_ref_voltage_mv,
+                                    int adc_value) {
+    int max_adc_value = (1 << adc_bits) - 1;
+    int input_voltage_mv = (adc_value * adc_ref_voltage_mv) / max_adc_value;
+    return (input_voltage_mv * divider_ratio) / 100;
+}
+
+static void printCurrentTime(struct tm *timeinfo, char *buffer) {
+    strftime(buffer, 80, "%Y-%m-%d %H:%M:%S", timeinfo);
+}
+
+static void dormancy() {
+    // ネットワークを切る
+    WiFi.disconnect(true);
+    WiFi.mode(WIFI_OFF);
+
+    // センサーを省電力モードにする
+    sensor.stopContinuous();
+
+    // I2Cを切る
+    Wire.end();
+
+    // deepsleep
+    // TODO 時間の計算
+    uint64_t sleep_time_us = 60 * 1000 * 1000; // 60秒
+    esp_deep_sleep(sleep_time_us);
+}
+
 static void VL53L1X_setup() {
     sensor.setTimeout(5000);
     sensor.setBus(&Wire);
     if (!sensor.init()) {
         DBG_PRINT("Failed to detect and initialize sensor!\n");
-        while (1)
-            ;
+        dormancy();
     }
     DBG_PRINT("VL53L1X init\n");
 
@@ -73,7 +97,6 @@ static void VL53L1X_setup() {
     sensor.startContinuous(200);
 }
 
-// 1.積雪の測定
 static void measure_snowfall() {
     sensor.read();
     DBG_PRINT("range: %d\tstatus: %s\tpeak signal: %f\tambient: %f\n", sensor.ranging_data.range_mm,
@@ -82,42 +105,28 @@ static void measure_snowfall() {
               sensor.ranging_data.ambient_count_rate_MCPS);
 }
 
-// 2.バッテリー電圧測定
 static void measure_battery_voltage() {
-    int rawValue = analogRead(VSYS_ADC_PIN);           // ADC値を読み取る
-    float voltage = (rawValue * VREF) / ADC_MAX_VALUE; // ADC値を電圧に変換
-    battery_voltage = (voltage * SCALE_FACTOR); // スケールファクターを掛けてVSYS電圧を計算
+    int rawValue = analogRead(ADC_BATTERY_V); // ADC値を読み取る
+    battery_voltage =
+        calculate_actual_voltage(ADC_BATTERY_V_SCALE, ADC_BATTERY_V_BITS, ADC_BATTERY_V_REF,
+                                 rawValue); // 実際の電圧(mV)を計算する
+    DBG_PRINT("Battery Voltage: %d\n", battery_voltage);
 }
 
-// 3.時刻取得
 static void get_time() {
-    static time_t now;
-    time(&now);
-    struct tm *timeinfo = localtime(&now);
-    DBG_PRINT("Time: %s", asctime(timeinfo));
+    tm timeinfo;
+    char buffer[80];
+    bool ret = getLocalTime(&timeinfo, 5000);
+    if (!ret) {
+        DBG_PRINT("Failed setup NTP, Start deep sleep\n");
+        dormancy();
+        return;
+    }
+    printCurrentTime(&timeinfo, buffer);
+    DBG_PRINT("time %s\n", buffer);
 }
-// 4.サーバーへ送信
+
 static void send_data() {}
-// 5.休眠
-static void dormancy() {
-    // ネットワークを切る
-    WiFi.disconnect(true);
-    WiFi.mode(WIFI_OFF);
-    digitalWrite(23, LOW);
-
-    // センサーを省電力モードにする
-    sensor.stopContinuous();
-
-    // 10MHzに設定
-    set_sys_clock_khz(10000, false);
-
-    uint32_t sleep_time;
-    // TODO 夜間は15分に一度、昼間は1時間に一度起きる
-    sleep_time = 15 * 60 * 1000;
-    sleep_ms(sleep_time);
-
-    rp2040.reboot();
-}
 
 /***********************************/
 /* Class implementions             */
@@ -127,48 +136,53 @@ static void dormancy() {
 /* Global functions                */
 /***********************************/
 void setup() {
-    Serial.begin(115200);
-    sleep_ms(2000);
+    DBG_PRINT("Setup Serial \n");
+    if (DEBUG) {
+        Serial.begin(115200);
+    } else {
+        Serial.end();
+    }
+    DBG_PRINT("\n");
 
-    // Wire setup
+    DBG_PRINT("Setup I2C \n");
     Wire.begin();
-    Wire1.begin();
-    DBG_PRINT("Wire setup\n");
+    DBG_PRINT("\n");
 
-    // WiFi setup
-    // WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-    // while (WiFi.status() != WL_CONNECTED) {
-    //     delay(1000);
-    //     DBG_PRINT("Connecting to WiFi..\n");
-    // }
-    // DBG_PRINT("Connected to the WiFi network\n");
+    DBG_PRINT("Setup ADC \n");
+    pinMode(ADC_BATTERY_V, INPUT);
+    analogReadResolution(ADC_BATTERY_V_BITS); // 12ビット解像度のADCを設定
+    DBG_PRINT("\n");
 
-    // NTP setup
-    // NTP.begin("ntp.nict.jp", "time.google.com");
-    // NTP.waitSet();
-    // setenv("TZ", "JST-9", 1);
-    // tzset();
+    DBG_PRINT("Setup WiFi \n");
+    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+    while (WiFi.status() != WL_CONNECTED) {
+        delay(500);
+        DBG_PRINT(".");
+    }
+    DBG_PRINT("\nConnected\n");
+    DBG_PRINT("IP address: %s\n", WiFi.localIP().toString().c_str());
+    DBG_PRINT("\n");
 
-    // 電源電圧の測定のためのセットアップ
-    // pinMode(ENABLE_PIN, OUTPUT);
-    // digitalWrite(ENABLE_PIN, HIGH);
-    // analogReadResolution(12); // 12ビット解像度のADCを設定
+    DBG_PRINT("Setup NTP \n");
+    configTzTime(TZ, NTP_SERVER1, NTP_SERVER2, NTP_SERVER3);
+    DBG_PRINT("\n");
 
-    // VL53L1Xセンサーのセットアップ
+    DBG_PRINT("Setup VL53L1X \n");
     VL53L1X_setup();
+    DBG_PRINT("\n");
 }
 
 void loop() {
-    DBG_PRINT("Start loop\n");
+    DBG_PRINT("--------Start-------\n");
     // 1.積雪の測定
     measure_snowfall();
     // 2.バッテリー電圧測定
-    // measure_battery_voltage();
+    measure_battery_voltage();
     // 3.時刻取得
-    // get_time();
+    get_time();
     // 4.サーバーへ送信
-    // send_data();
-    // 5.休眠
-    // DBG_PRINT("Start dormancy\n");
-    // dormancy();
+    send_data();
+    // 5.DeepSleep
+    dormancy();
+    DBG_PRINT("---------End--------\n\n");
 }
